@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mantenimiento Preventivo Mondis | Gestión</title>
+    <link rel="stylesheet" href="../style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+    <style>
+        .signature-container {
+            border: 2px dashed #3a3a5c;
+            border-radius: 8px;
+            background: #1a1a2e;
+            position: relative;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+
+        #signatureCanvas {
+            width: 100%;
+            height: 150px;
+            cursor: crosshair;
+            display: block;
+        }
+
+        .signature-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .sensor-block {
+            border: 1px solid #3a3a5c;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background: #1e1e38;
+        }
+
+        .sensor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #3a3a5c;
+            padding-bottom: 8px;
+        }
+
+        .readings-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .reading-col {
+            background: #2a2a4a;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #3a3a5c;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .reading-col label {
+            font-size: 0.9em;
+            margin-bottom: 0;
+            white-space: nowrap;
+            color: #7c83fd;
+            width: 80px;
+        }
+
+        .inspection-opt.selected[data-val="P"],
+        .inspection-opt.selected[data-val="SI"] {
+            background: #4caf50 !important;
+            color: #000 !important;
+        }
+
+        .inspection-opt.selected[data-val="F"] {
+            background: #f44336 !important;
+            color: #fff !important;
+        }
+
+        .inspection-opt.selected[data-val="na"],
+        .inspection-opt.selected[data-val="NA"] {
+            background: #666 !important;
+            color: #fff !important;
+        }
+
+        .modal {
+            max-width: 950px !important;
+            width: 95%;
+        }
+
+        .fixed-values-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .btn-row {
+            margin-top: 25px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Mantenimiento Preventivo Mondis <small style="font-size: 0.5em; color: #4caf50;">v3.0</small></h1>
+            <p class="subtitle">Gestión de Sensores y Calibración Estándar</p>
+        </header>
+
+        <section class="card upload-section">
+            <div class="file-upload" id="dropZone">
+                <input type="file" id="fileInput" accept=".xlsx,.xls">
+                <div class="icon">📁</div>
+                <div class="text" id="fileLabel">Cargar Relevamiento Mondis (Excel)</div>
+            </div>
+
+            <div class="btn-row hidden" id="configActions">
+                <button id="clearDataBtn" class="btn btn-danger">🗑️ Borrar Datos</button>
+                <button id="exportBackupBtn" class="btn btn-secondary">📦 Exportar Backup</button>
+                <button id="importBackupBtn" class="btn btn-secondary">📥 Importar Backup</button>
+                <input type="file" id="importBackupFile" accept=".json" style="display:none">
+            </div>
+        </section>
+
+        <main id="mainContent" class="hidden">
+            <div class="filters-grid">
+                <div class="card">
+                    <label>🏥 Seleccionar Clínica (Hoja)</label>
+                    <select id="sheetSelector" class="filter-select"></select>
+                </div>
+                <div class="card">
+                    <label>🔍 Buscar por N° Serie</label>
+                    <input type="text" id="serieFilter" placeholder="Filtrar por serie..."
+                        style="text-transform: uppercase;">
+                </div>
+            </div>
+
+            <div class="card summary-card">
+                <div class="summary-item" id="totalEquipos"><span class="val">0</span><span class="lab">Equipos</span>
+                </div>
+                <div class="summary-item warning" id="cercaVencer"><span class="val">0</span><span class="lab">Por
+                        Vencer</span></div>
+                <div class="summary-item danger" id="vencidos"><span class="val">0</span><span
+                        class="lab">Vencidos</span></div>
+            </div>
+
+            <div class="table-container card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Equipo</th>
+                            <th>N° Serie</th>
+                            <th>Última Calib.</th>
+                            <th>Técnico</th>
+                            <th>Cert.</th>
+                            <th>Estado</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="equiposTableBody"></tbody>
+                </table>
+            </div>
+        </main>
+
+        <!-- Modal Editar -->
+        <div id="editModal" class="modal-overlay hidden">
+            <div class="modal">
+                <div class="input-grid">
+                    <div class="input-group"><label>Equipo</label><input type="text" id="equipmentNameInput"></div>
+                    <div class="input-group"><label>N° Serie</label><input type="text" id="modalSerieInput"></div>
+                </div>
+                <div class="input-grid">
+                    <div class="input-group"><label>Marca</label><input type="text" id="brandInput"></div>
+                    <div class="input-group"><label>Modelo</label><input type="text" id="modelInput"></div>
+                </div>
+                <div class="input-grid">
+                    <div class="input-group"><label>Fecha Calibración</label><input type="date" id="calibDateInput">
+                    </div>
+                    <div class="input-group"><label>Orden M</label><input type="text" id="ordenMInput"></div>
+                </div>
+                <div class="input-group"><label>Técnico</label><input type="text" id="technicianInput"></div>
+
+                <div class="instruments-section">
+                    <div class="instruments-header">
+                        <h4>Instrumental Utilizado</h4>
+                        <button type="button" id="addInstrumentBtn" class="btn btn-secondary btn-small">+
+                            Añadir</button>
+                    </div>
+                    <div id="instrumentsContainer" class="instruments-list"></div>
+                </div>
+
+                <div class="inspection-section">
+                    <h4>Estado de Valoración</h4>
+                    <div id="evaluationStatusContainer" class="inspection-grid"></div>
+                </div>
+
+                <div class="inspection-section">
+                    <h4>8.1 Test de Inspección y Funcionalidad</h4>
+                    <div id="inspectionPointsContainer" class="inspection-grid"></div>
+                </div>
+
+                <div class="inspection-section">
+                    <h4>8.2 Características y Parámetros (Fijos)</h4>
+                    <div class="fixed-values-grid">
+                        <div class="input-group"><label>Up (-70°C)</label><input type="number" id="fixedUp70"
+                                step="0.01" value="0.18"></div>
+                        <div class="input-group"><label>Up (-20.1°C)</label><input type="number" id="fixedUp20"
+                                step="0.01" value="0.14"></div>
+                        <div class="input-group"><label>Up (29°C)</label><input type="number" id="fixedUp29" step="0.01"
+                                value="0.11"></div>
+                        <div class="input-group"><label>rp (Res. Patrón)</label><input type="number" id="fixedRp"
+                                step="0.001" value="0.01"></div>
+                        <div class="input-group"><label>rx (Res. Term.)</label><input type="number" id="fixedRx"
+                                step="0.0001" value="0.0625"></div>
+                    </div>
+                </div>
+
+                <div class="inspection-section">
+                    <div class="instruments-header">
+                        <h4>Mediciones de Sensores</h4>
+                        <button type="button" id="addSensorBlockBtn" class="btn btn-primary btn-small">+ Añadir
+                            Sensor</button>
+                    </div>
+                    <div id="sensorsContainer"></div>
+                </div>
+
+                <div class="input-group"><label>Comentarios</label><textarea id="commentsInput" rows="2"></textarea>
+                </div>
+
+                <div class="card" style="margin-top:15px; padding:15px; border:1px solid #3a3a5c;">
+                    <div class="input-group">
+                        <label>Plantilla Excel para Certificado</label>
+                        <select id="templateSelector" class="filter-select" style="margin-bottom:10px;"></select>
+                    </div>
+                    <div class="input-group">
+                        <label>Adjuntar Certificado (PDF/Excel) o Nueva Plantilla</label>
+                        <input type="file" id="certFileInput" accept=".pdf,.xlsx,.xls">
+                        <div id="certStatus" style="font-size: 0.85em; margin-top: 5px; color: #4caf50;"></div>
+                    </div>
+                    <div id="saveTemplateRow" class="hidden"
+                        style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+                        <input type="text" id="templateNameInput" placeholder="Nombre para guardar plantilla..."
+                            style="flex:1;">
+                        <button id="saveNewTemplateBtn" class="btn btn-secondary btn-small">💾 Guardar como
+                            Plantilla</button>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Firma del Técnico</label>
+                    <div class="signature-container">
+                        <canvas id="signatureCanvas"></canvas>
+                        <div class="signature-actions">
+                            <button type="button" id="clearSignatureBtn" class="btn btn-small">Borrar</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="btn-row">
+                    <button id="saveCalibBtn" class="btn btn-primary">Guardar Registro</button>
+                    <button id="closeModalBtn" class="btn btn-secondary">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Datalist para historial de instrumentos -->
+    <datalist id="instrumentsHistory"></datalist>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
